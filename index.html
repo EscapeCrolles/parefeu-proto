@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protocole Pare-feu – proto repérage</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#111416;--card:#1c2125;--line:#2f363b;--txt:#e9ecee;--mut:#9aa4ab;--ok:#3ecf8e;--warn:#f0b429;--bad:#ef5350;--acc:#4ea3ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 system-ui,-apple-system,Roboto,sans-serif}
+header{position:sticky;top:0;z-index:2;background:#0b0d0e;border-bottom:1px solid var(--line);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+header b{font-size:15px;letter-spacing:.02em}
+#gps{font-size:13px;padding:3px 8px;border-radius:12px;background:var(--line);white-space:nowrap}
+nav{display:grid;grid-template-columns:repeat(4,1fr);background:#0b0d0e;border-bottom:1px solid var(--line)}
+nav button{background:none;border:0;color:var(--mut);padding:12px 4px;font-size:15px;border-bottom:3px solid transparent}
+nav button.on{color:var(--txt);border-bottom-color:var(--acc)}
+main{padding:14px;max-width:640px;margin:0 auto}
+section{display:none}
+section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+.mut{color:var(--mut);font-size:14px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.big{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center;margin:4px 0}
+button.b{background:var(--acc);color:#04121f;border:0;border-radius:8px;padding:12px 14px;font-size:16px;font-weight:600;min-height:44px}
+button.b2{background:var(--line);color:var(--txt)}
+button.bad{background:var(--bad);color:#fff}
+button.w{width:100%}
+button:disabled{opacity:.45}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+input,textarea{width:100%;background:#0d1012;color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit}
+textarea{min-height:60px}
+input[type=checkbox]{width:auto}
+.chk{display:flex;gap:8px;align-items:center;margin:6px 0;color:var(--txt);font-size:15px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad-t{color:var(--bad)}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;background:var(--line)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}
+.scroll{overflow-x:auto}
+.msg{padding:10px;border-radius:8px;margin:8px 0;font-weight:600}
+.msg.ok{background:#12352a}.msg.bad{background:#3a1717;color:#ffb4b2}.msg.warn{background:#3a2e10}
+.zone h3{margin:0 0 4px;font-size:16px}
+</style>
+</head>
+<body>
+<header><b>Protocole Pare-feu · proto</b><span id="gps">GPS…</span></header>
+<nav>
+<button data-tab="releve" class="on">Relever</button>
+<button data-tab="parcours">Parcours</button>
+<button data-tab="jouer">Jouer</button>
+<button data-tab="journal">Journal</button>
+</nav>
+<main>
+
+<section id="releve" class="on">
+<div class="card">
+<div class="mut">Position actuelle</div>
+<div id="posInfo" style="font-variant-numeric:tabular-nums">En attente du GPS…</div>
+<button class="b b2 w" id="btnGps" style="margin-top:8px">Relancer le GPS</button>
+</div>
+<div class="card">
+<label for="rName">Nom du lieu</label>
+<input id="rName" placeholder="ex. Mairie, côté fontaine">
+<label for="rNote">Remarque (ce qu'on peut exploiter ici)</label>
+<textarea id="rNote" placeholder="ex. plaque datée 1897 à gauche de la porte"></textarea>
+<p class="mut">Reste immobile pendant le relevé : la position est moyennée sur 10 secondes.</p>
+<button class="b w" id="btnRec">Enregistrer ce lieu (10 s)</button>
+<div id="recMsg"></div>
+</div>
+<div class="card">
+<div class="mut">Lieux relevés : <b id="nbZones">0</b></div>
+<div id="nearest" class="mut"></div>
+</div>
+</section>
+
+<section id="parcours">
+<div class="card">
+<p class="mut" style="margin-top:0">L'ordre de la liste est l'ordre de la partie. Les réponses acceptées se séparent par « / ». Une étape sans réponse se valide d'un simple bouton, sur place.</p>
+<div class="row">
+<button class="b b2" id="btnCsvZ">Export tableur</button>
+<button class="b b2" id="btnJson">Sauvegarde</button>
+<button class="b b2" id="btnImp">Importer</button>
+<input type="file" id="fileImp" accept=".json,application/json" hidden>
+</div>
+</div>
+<div id="zoneList"></div>
+</section>
+
+<section id="jouer">
+<div id="game"></div>
+<div class="card">
+<label class="chk"><input type="checkbox" id="optDebug"> Afficher distance et précision (mode test)</label>
+<label class="chk"><input type="checkbox" id="optAcc"> Compter la marge d'erreur du GPS dans le rayon</label>
+</div>
+</section>
+
+<section id="journal">
+<div class="card">
+<div id="logSum" class="mut">Aucune partie.</div>
+<div class="scroll"><table id="logTab"></table></div>
+<button class="b b2 w" id="btnCsvLog" style="margin-top:10px">Export tableur du journal</button>
+</div>
+</section>
+
+</main>
+<script>
+const MISSION_MS = 90 * 60 * 1000
+const HINT_MIN = 5
+const DEFAULT_RADIUS = 20
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d } catch (e) { return d } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) {} }
+}
+
+let zones = store.get('pf_zones', [])
+let game = store.get('pf_game', null)
+let opts = store.get('pf_opts', { debug: true, useAcc: false })
+let pos = null
+let watchId = null
+let samples = null
+let wakeLock = null
+let lastView = ''
+
+const $ = s => document.querySelector(s)
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+const saveZones = () => store.set('pf_zones', zones)
+const saveGame = () => store.set('pf_game', game)
+
+function dist(a, b) {
+  const R = 6371000, r = x => x * Math.PI / 180
+  const dLat = r(b.lat - a.lat), dLon = r(b.lon - a.lon)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+function mmss(ms) {
+  const neg = ms < 0
+  ms = Math.abs(ms)
+  const m = Math.floor(ms / 60000), s = Math.floor(ms % 60000 / 1000)
+  return (neg ? '-' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+}
+const clock = t => t ? new Date(t).toLocaleTimeString('fr-FR') : ''
+
+// --- GPS ---
+function startGps() {
+  if (!('geolocation' in navigator)) { $('#gps').textContent = 'Pas de GPS'; return }
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId)
+  watchId = navigator.geolocation.watchPosition(p => {
+    pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() }
+    if (samples) samples.push(pos)
+    onPos()
+  }, err => {
+    $('#gps').textContent = err.code === 1 ? 'GPS refusé' : 'GPS indisponible'
+    $('#gps').style.background = 'var(--bad)'
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 })
+}
+
+function onPos() {
+  const g = $('#gps')
+  g.textContent = '± ' + Math.round(pos.acc) + ' m'
+  g.style.background = pos.acc <= 10 ? '#1d5c43' : pos.acc <= 25 ? '#6b5212' : '#6b1f1f'
+  $('#posInfo').innerHTML = pos.lat.toFixed(6) + ', ' + pos.lon.toFixed(6) +
+    '<br><span class="mut">précision ± ' + Math.round(pos.acc) + ' m · ' + clock(pos.t) + '</span>'
+  renderNearest()
+  updateZoneDistances()
+  tickGame()
+}
+
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null) } } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake() })
+
+// --- relevé ---
+function recordZone() {
+  if (!pos) { $('#recMsg').innerHTML = '<div class="msg bad">Pas encore de position GPS.</div>'; return }
+  const btn = $('#btnRec')
+  btn.disabled = true
+  samples = [pos]
+  let left = 10
+  btn.textContent = 'Relevé en cours… ' + left + ' s'
+  const iv = setInterval(() => {
+    left--
+    btn.textContent = 'Relevé en cours… ' + left + ' s'
+    navigator.geolocation.getCurrentPosition(p => {
+      if (samples) samples.push({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() })
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 2500 })
+    if (left > 0) return
+    clearInterval(iv)
+    const pts = samples
+    samples = null
+    // moyenne pondérée par la précision : les mesures précises comptent plus
+    let w = 0, la = 0, lo = 0
+    pts.forEach(p => { const k = 1 / Math.max(p.acc, 1) ** 2; w += k; la += p.lat * k; lo += p.lon * k })
+    const accs = pts.map(p => p.acc).sort((a, b) => a - b)
+    const z = {
+      id: Date.now().toString(36),
+      name: $('#rName').value.trim() || 'Lieu ' + (zones.length + 1),
+      note: $('#rNote').value.trim(),
+      lat: +(la / w).toFixed(7), lon: +(lo / w).toFixed(7),
+      acc: Math.round(accs[Math.floor(accs.length / 2)]),
+      samples: pts.length,
+      radius: DEFAULT_RADIUS,
+      clue: '', question: '', answers: '', hint: '',
+      at: new Date().toISOString()
+    }
+    zones.push(z)
+    saveZones()
+    $('#rName').value = ''
+    $('#rNote').value = ''
+    btn.disabled = false
+    btn.textContent = 'Enregistrer ce lieu (10 s)'
+    const q = z.acc <= 10 ? 'ok' : z.acc <= 25 ? 'warn' : 'bad'
+    $('#recMsg').innerHTML = '<div class="msg ' + q + '">« ' + esc(z.name) + ' » enregistré · précision ± ' + z.acc + ' m (' + z.samples + ' mesure' + (z.samples > 1 ? 's' : '') + ')' +
+      (z.acc > 20 ? '<br>Précision faible pour un rayon de 20 m : refais le relevé à découvert si possible.' : '') + '</div>'
+    renderZones()
+    renderNearest()
+  }, 1000)
+}
+
+function renderNearest() {
+  $('#nbZones').textContent = zones.length
+  if (!pos || !zones.length) { $('#nearest').textContent = ''; return }
+  let best = null
+  zones.forEach(z => { const d = dist(pos, z); if (!best || d < best.d) best = { z, d } })
+  $('#nearest').textContent = 'Lieu relevé le plus proche : ' + best.z.name + ' à ' + Math.round(best.d) + ' m'
+}
+
+// --- parcours ---
+function renderZones() {
+  const el = $('#zoneList')
+  if (!zones.length) { el.innerHTML = '<div class="card mut">Aucun lieu. Commence par l\'onglet Relever.</div>'; return }
+  el.innerHTML = zones.map((z, i) => `
+<div class="card zone" data-id="${z.id}">
+<div class="row" style="justify-content:space-between">
+<h3>${i + 1}. ${esc(z.name)}</h3>
+<span class="pill" data-dist="${z.id}"></span>
+</div>
+<div class="mut">${z.lat}, ${z.lon} · relevé ± ${z.acc} m${z.note ? ' · ' + esc(z.note) : ''}</div>
+<label>Nom</label><input data-f="name" value="${esc(z.name)}">
+<label>Rayon (m)</label><input data-f="radius" type="number" min="5" max="200" value="${z.radius}">
+<label>Énigme de destination (affichée avant d'arriver)</label><textarea data-f="clue">${esc(z.clue)}</textarea>
+<label>Question sur place</label><textarea data-f="question">${esc(z.question)}</textarea>
+<label>Réponses acceptées (séparées par /)</label><input data-f="answers" value="${esc(z.answers)}">
+<label>Indice</label><input data-f="hint" value="${esc(z.hint)}">
+<div class="row" style="margin-top:10px">
+<button class="b b2" data-act="up" ${i === 0 ? 'disabled' : ''}>Monter</button>
+<button class="b b2" data-act="down" ${i === zones.length - 1 ? 'disabled' : ''}>Descendre</button>
+<button class="b bad" data-act="del">Supprimer</button>
+</div>
+</div>`).join('')
+  updateZoneDistances()
+}
+
+function updateZoneDistances() {
+  if (!pos) return
+  zones.forEach(z => {
+    const p = document.querySelector('[data-dist="' + z.id + '"]')
+    if (p) { const d = Math.round(dist(pos, z)); p.textContent = d + ' m'; p.style.background = d <= z.radius ? '#1d5c43' : '' }
+  })
+}
+
+$('#zoneList').addEventListener('input', e => {
+  const card = e.target.closest('[data-id]'), f = e.target.dataset.f
+  if (!card || !f) return
+  const z = zones.find(z => z.id === card.dataset.id)
+  z[f] = f === 'radius' ? Math.max(5, +e.target.value || DEFAULT_RADIUS) : e.target.value
+  saveZones()
+})
+$('#zoneList').addEventListener('click', e => {
+  const act = e.target.dataset.act
+  if (!act) return
+  const i = zones.findIndex(z => z.id === e.target.closest('[data-id]').dataset.id)
+  if (act === 'del' && !confirm('Supprimer « ' + zones[i].name + ' » ?')) return
+  if (act === 'del') zones.splice(i, 1)
+  if (act === 'up') [zones[i - 1], zones[i]] = [zones[i], zones[i - 1]]
+  if (act === 'down') [zones[i + 1], zones[i]] = [zones[i], zones[i + 1]]
+  saveZones()
+  renderZones()
+})
+
+// --- exports ---
+function download(name, text, type) {
+  const blob = new Blob([text], { type })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1000)
+}
+const csvCell = v => '"' + String(v ?? '').replace(/"/g, '""') + '"'
+const toCsv = rows => '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n')
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+
+$('#btnCsvZ').onclick = () => download('parefeu-lieux-' + stamp() + '.csv', toCsv([
+  ['ordre', 'nom', 'latitude', 'longitude', 'precision_releve_m', 'mesures', 'rayon_m', 'remarque', 'enigme_destination', 'question', 'reponses', 'indice', 'releve_le'],
+  ...zones.map((z, i) => [i + 1, z.name, z.lat, z.lon, z.acc, z.samples, z.radius, z.note, z.clue, z.question, z.answers, z.hint, z.at])
+]), 'text/csv')
+$('#btnJson').onclick = () => download('parefeu-parcours-' + stamp() + '.json', JSON.stringify(zones, null, 2), 'application/json')
+$('#btnImp').onclick = () => $('#fileImp').click()
+$('#fileImp').onchange = async e => {
+  const f = e.target.files[0]
+  if (!f) return
+  try {
+    const data = JSON.parse(await f.text())
+    if (!Array.isArray(data) || data.some(z => typeof z.lat !== 'number' || typeof z.lon !== 'number')) throw new Error()
+    if (zones.length && !confirm('Remplacer les ' + zones.length + ' lieux actuels par les ' + data.length + ' du fichier ?')) return
+    zones = data.map(z => ({ radius: DEFAULT_RADIUS, clue: '', question: '', answers: '', hint: '', note: '', acc: 0, ...z, id: z.id || Math.random().toString(36).slice(2) }))
+    saveZones()
+    renderZones()
+    renderNearest()
+  } catch (err) { alert('Fichier illisible : il faut une sauvegarde faite avec ce prototype.') }
+  e.target.value = ''
+}
+
+// --- partie ---
+function remaining() { return MISSION_MS - (Date.now() - game.start) - game.penalty * 60000 }
+
+function inZone(z) {
+  if (!pos) return false
+  const d = dist(pos, z)
+  return opts.useAcc ? d - pos.acc <= z.radius : d <= z.radius
+}
+
+function startGame() {
+  if (!zones.length) { alert('Aucun lieu dans le parcours.'); return }
+  if (game && !game.end && !confirm('Une partie est en cours. La remplacer ?')) return
+  game = {
+    start: Date.now(), penalty: 0, idx: 0, end: null,
+    zones: JSON.parse(JSON.stringify(zones)),
+    log: zones.map(z => ({ name: z.name, arrived: null, validated: null, dist: null, acc: null, tries: 0, hints: 0, secours: false }))
+  }
+  saveGame()
+  keepAwake()
+  lastView = ''
+  tickGame()
+}
+
+function tickGame() {
+  if (!game || game.end) return
+  const z = game.zones[game.idx], L = game.log[game.idx]
+  if (!L.arrived && inZone(z)) {
+    L.arrived = Date.now()
+    saveGame()
+    if (navigator.vibrate) navigator.vibrate([150, 80, 150])
+  }
+  renderGame()
+}
+
+function renderGame() {
+  const el = $('#game')
+  if (!game) {
+    if (lastView !== 'none') {
+      el.innerHTML = '<div class="card"><p>Parcours : ' + zones.length + ' lieu(x). La partie utilise une copie du parcours au moment du départ.</p><button class="b w" id="btnStart">Ouvrir la sacoche</button></div>'
+      lastView = 'none'
+    }
+    return
+  }
+  if (game.end) {
+    if (lastView !== 'end') {
+      const total = game.end - game.start + game.penalty * 60000
+      const verdict = game.stopped ? 'Partie arrêtée.' : total <= MISSION_MS ? 'Dans les temps.' : 'Hors délai : l\'IA s\'est échappée.'
+      el.innerHTML = '<div class="card"><div class="msg ' + (game.stopped ? 'warn' : 'ok') + '">' + (game.stopped ? 'Partie arrêtée' : 'Mission terminée') + '</div><div class="big">' + mmss(total) + '</div><p class="mut">Temps réel ' + mmss(game.end - game.start) + ' + ' + game.penalty + ' min de pénalité. ' + verdict + '</p><button class="b w" id="btnStart">Nouvelle partie</button></div>'
+      lastView = 'end'
+    }
+    return
+  }
+  const z = game.zones[game.idx], L = game.log[game.idx]
+  const view = 'stage' + game.idx + (L.arrived ? 'u' : 'l') + (opts.debug ? 'd' : '')
+  if (lastView !== view) {
+    lastView = view
+    const hasQ = z.answers.trim() !== ''
+    el.innerHTML = `
+<div class="card">
+<div class="mut" style="text-align:center">Temps restant</div>
+<div class="big" id="timer"></div>
+<div class="mut" style="text-align:center">Étape ${game.idx + 1} / ${game.zones.length}${game.penalty ? ' · pénalités ' + game.penalty + ' min' : ''}</div>
+</div>
+<div class="card">
+<div class="mut">Destination</div>
+<p style="white-space:pre-line;margin:4px 0">${esc(z.clue) || '<span class="mut">(pas d\'énigme de destination saisie)</span>'}</p>
+${opts.debug ? '<p class="mut" id="dbg"></p>' : ''}
+</div>
+${L.arrived ? `
+<div class="card">
+<div class="msg ok">Zone atteinte</div>
+${z.question ? '<p style="white-space:pre-line">' + esc(z.question) + '</p>' : ''}
+${hasQ ? '<input id="ans" autocomplete="off" placeholder="Votre réponse"><div id="ansMsg"></div><button class="b w" id="btnAns" style="margin-top:8px">Valider la réponse</button>'
+        : '<div id="ansMsg"></div><button class="b w" id="btnAns">Valider l\'étape</button>'}
+</div>` : `
+<div class="card mut">Rends-toi dans la zone pour débloquer l'étape (rayon ${z.radius} m).</div>`}
+<div class="card">
+<div id="hintBox"></div>
+<div class="row">
+<button class="b b2" id="btnHint" ${z.hint ? '' : 'disabled'}>Indice (+${HINT_MIN} min)</button>
+${L.arrived ? '' : '<button class="b b2" id="btnSos">Je suis sur place</button>'}
+</div>
+<button class="b bad w" id="btnStop" style="margin-top:10px">Arrêter la partie</button>
+</div>`
+    if (L.hints && z.hint) $('#hintBox').innerHTML = '<div class="msg warn">Indice : ' + esc(z.hint) + '</div>'
+  }
+  const t = $('#timer')
+  if (t) { const r = remaining(); t.textContent = mmss(r); t.className = 'big ' + (r < 0 ? 'bad-t' : r < 10 * 60000 ? 'warn' : '') }
+  const dbg = $('#dbg')
+  if (dbg) dbg.textContent = pos ? 'Distance ' + Math.round(dist(pos, z)) + ' m · précision ± ' + Math.round(pos.acc) + ' m · rayon ' + z.radius + ' m · ' + (inZone(z) ? 'dans la zone' : 'hors zone') : 'En attente du GPS…'
+}
+
+function submitAnswer() {
+  const z = game.zones[game.idx], L = game.log[game.idx], msg = $('#ansMsg')
+  const here = inZone(z)
+  if (!here && !L.secours) {
+    msg.innerHTML = '<div class="msg bad">Tu n\'es plus dans la zone' + (pos ? ' (' + Math.round(dist(pos, z)) + ' m)' : '') + '. Reviens sur place pour valider.</div>'
+    return
+  }
+  const wanted = z.answers.split('/').map(norm).filter(Boolean)
+  if (wanted.length) {
+    const given = norm($('#ans').value)
+    if (!wanted.includes(given)) {
+      L.tries++
+      saveGame()
+      msg.innerHTML = '<div class="msg bad">Mauvaise réponse (' + L.tries + ' essai' + (L.tries > 1 ? 's' : '') + ').</div>'
+      return
+    }
+  }
+  L.tries++
+  L.validated = Date.now()
+  L.dist = pos ? Math.round(dist(pos, z)) : null
+  L.acc = pos ? Math.round(pos.acc) : null
+  game.idx++
+  if (game.idx >= game.zones.length) game.end = Date.now()
+  saveGame()
+  if (navigator.vibrate) navigator.vibrate(300)
+  renderGame()
+  renderLog()
+}
+
+$('#game').addEventListener('click', e => {
+  const id = e.target.id
+  if (id === 'btnStart') startGame()
+  if (!game || game.end) return
+  const z = game.zones[game.idx], L = game.log[game.idx]
+  if (id === 'btnAns') submitAnswer()
+  if (id === 'btnHint') {
+    if (!L.hints) { L.hints = 1; game.penalty += HINT_MIN; saveGame() }
+    $('#hintBox').innerHTML = '<div class="msg warn">Indice : ' + esc(z.hint) + '</div>'
+    renderGame()
+  }
+  if (id === 'btnSos' && confirm('Débloquer l\'étape sans le GPS ? Ce sera noté dans le journal.')) {
+    L.secours = true
+    L.arrived = L.arrived || Date.now()
+    saveGame()
+    renderGame()
+  }
+  if (id === 'btnStop' && confirm('Arrêter la partie ? Le journal est gardé.')) {
+    game.end = Date.now()
+    game.stopped = true
+    saveGame()
+    renderGame()
+    renderLog()
+  }
+})
+$('#game').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'ans') submitAnswer() })
+setInterval(tickGame, 1000)
+
+// --- journal ---
+function logRows() {
+  return game.log.map((L, i) => [
+    i + 1, L.name,
+    L.arrived ? mmss(L.arrived - game.start) : '',
+    L.validated ? mmss(L.validated - game.start) : '',
+    L.arrived && L.validated ? mmss(L.validated - L.arrived) : '',
+    L.dist ?? '', L.acc ?? '', L.tries, L.hints, L.secours ? 'oui' : ''
+  ])
+}
+const LOG_HEAD = ['étape', 'lieu', 'arrivée', 'validée', 'sur place', 'dist. m', 'préc. m', 'essais', 'indices', 'secours']
+
+function renderLog() {
+  if (!game) return
+  const done = game.log.filter(L => L.validated).length
+  $('#logSum').textContent = 'Partie du ' + new Date(game.start).toLocaleString('fr-FR') + ' · ' + done + '/' + game.log.length + ' étapes · pénalités ' + game.penalty + ' min' + (game.stopped ? ' · arrêtée' : '')
+  $('#logTab').innerHTML = '<tr>' + LOG_HEAD.map(h => '<th>' + h + '</th>').join('') + '</tr>' +
+    logRows().map(r => '<tr>' + r.map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('')
+}
+$('#btnCsvLog').onclick = () => {
+  if (!game) { alert('Aucune partie.'); return }
+  download('parefeu-journal-' + stamp() + '.csv', toCsv([LOG_HEAD, ...logRows()]), 'text/csv')
+}
+
+// --- onglets et options ---
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button, section').forEach(x => x.classList.remove('on'))
+  b.classList.add('on')
+  $('#' + b.dataset.tab).classList.add('on')
+  if (b.dataset.tab === 'journal') renderLog()
+  if (b.dataset.tab === 'jouer') { lastView = ''; renderGame() }
+})
+$('#optDebug').checked = opts.debug
+$('#optAcc').checked = opts.useAcc
+$('#optDebug').onchange = e => { opts.debug = e.target.checked; store.set('pf_opts', opts); lastView = ''; renderGame() }
+$('#optAcc').onchange = e => { opts.useAcc = e.target.checked; store.set('pf_opts', opts) }
+$('#btnRec').onclick = () => { keepAwake(); recordZone() }
+$('#btnGps').onclick = startGps
+
+renderZones()
+renderNearest()
+renderGame()
+renderLog()
+startGps()
+</script>
+</body>
+</html>
